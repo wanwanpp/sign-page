@@ -1,0 +1,179 @@
+package com.site.controller;
+
+import com.site.model.sign.SignRecords;
+import com.site.repository.MemberRepo;
+import com.site.repository.SignRecordsRepo;
+import com.site.utils.DateUtil;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Controller;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseBody;
+
+import javax.servlet.http.HttpServletRequest;
+import java.sql.Timestamp;
+import java.util.*;
+
+@Controller
+@Slf4j
+@RequestMapping("/sign")
+public class SignCrol {
+
+    @Autowired
+    private MemberRepo memberRepo;
+
+    @Autowired
+    private SignRecordsRepo signRecordsRepo;
+
+    public static List<Map<String, Object>> WARN_MAP = new LinkedList<>();
+
+
+    @RequestMapping("/name")
+    @ResponseBody
+    public List<Map<String, Object>> show() {
+
+//        List<Member> members = memberRepo.findAll();
+        /**
+         * 使用HQL进行某个表的多字段查询
+         */
+        List<Object[]> members = memberRepo.findNamesAndIsstart();
+        List<Map<String, Object>> returnInfos = new LinkedList<>();
+        for (Object[] member : members) {
+            Map<String, Object> map = new HashMap<>();
+            map.put("name", member[0]);
+            map.put("isstart", member[1]);
+            returnInfos.add(map);
+        }
+
+        return returnInfos;
+    }
+
+    @RequestMapping("")
+    public String showpage(HttpServletRequest request) {
+        //设置会话超时时间为1天
+        request.getSession().setMaxInactiveInterval(24 * 60 * 60);
+        return "signWork";
+    }
+
+    @RequestMapping(value = "/start", produces = "application/text")
+    @ResponseBody
+    public String sendStart(@RequestBody String name) {
+
+        SignRecords signRecords = new SignRecords(name);
+        if (signRecordsRepo.save(signRecords) != null) {
+            memberRepo.setIsStart(name);
+            return name + "签到成功";
+        } else {
+            log.error(name+"签到失败");
+            return name + "签到失败，请重试";
+        }
+    }
+
+    @RequestMapping("/getWarn")
+    @ResponseBody
+    public Object getWarn() {
+
+//        List<Map<String, Object>> maps = new LinkedList<>();
+        long now = System.currentTimeMillis();
+        List<String> names = memberRepo.findNamesStart();
+
+        for (String name : names) {
+            Timestamp cometime = signRecordsRepo.selectDescZCometime(name);
+            if (cometime != null) {
+//            如果大于四小时进行提示
+                if (now - cometime.getTime() > 14400000) {
+                    Map<String, Object> map = new HashMap();
+                    map.put("name", name);
+                    map.put("time", DateUtil.formatdate(now - cometime.getTime()));
+                    log.info("name" + name + "and : time " + DateUtil.formatdate(now - cometime.getTime()));
+                    WARN_MAP.add(map);
+                }
+            }
+        }
+        if (WARN_MAP.size() > 0) {
+            return WARN_MAP;
+        } else {
+            return "";
+        }
+    }
+
+    @RequestMapping(value = "/onceEnd", produces = "application/text")
+    @ResponseBody
+    public String onceEnd() {
+//        List<Map<String, Object>> infos = (List<Map<String, Object>>) getWarn();
+
+        //超过六小时被删除的
+        StringBuffer deletedInfo = new StringBuffer("");
+        if (WARN_MAP.size() > 0) {
+            List<Map<String, Object>> outTimePerson = WARN_MAP;
+            try {
+                for (Map<String, Object> map : outTimePerson) {
+                    String name = (String) map.get("name");
+//                    Long id = signRecordsRepo.selectDesc(name).get(0).getId();
+                    Long id = signRecordsRepo.selectDescZId(name);
+                    Long cometime = signRecordsRepo.selectComeTime(id).getTime();
+                    Timestamp leaveTimeStamp = new Timestamp(System.currentTimeMillis());
+                    Long totalTime = leaveTimeStamp.getTime() - cometime;
+                    if (totalTime > 6 * 60 * 60 * 1000) {
+                        signRecordsRepo.delete(id);
+                        memberRepo.setIsEnd(name);
+                        deletedInfo.append(name + ",");
+                    } else {
+                        String str_total = String.valueOf(DateUtil.formatdate(totalTime));
+                        if (signRecordsRepo.setSendEnd(leaveTimeStamp, totalTime, str_total, id) == 1) {
+                            memberRepo.setIsEnd(name);
+                        }
+                        SignRecords signRecords = new SignRecords(name);
+                        if (signRecordsRepo.save(signRecords) != null) {
+                            memberRepo.setIsStart(name);
+                        } else {
+                            throw new Exception("一键重签失败");
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.error("一键重签失败,请重试");
+                return "一键重签失败,请重试";
+            }
+            WARN_MAP.clear();
+        }
+        if (!deletedInfo.toString().equals("")) {
+            String string = deletedInfo.deleteCharAt(deletedInfo.length() - 1).append("超过六小时，此次签到无效").toString();
+            log.error(string);
+            return string;
+        }
+        return "一键重签成功";
+    }
+
+    @RequestMapping(value = "/end", produces = "application/text")
+    @ResponseBody
+    public String sendend(@RequestBody String name) {
+
+//        Long id = signRecordsRepo.selectDesc(name).get(0).getId();
+        Long id = signRecordsRepo.selectDescZId(name);
+
+        Long cometime = signRecordsRepo.selectComeTime(id).getTime();
+        Timestamp leaveTimeStamp = new Timestamp(System.currentTimeMillis());
+
+        Long totalTime = leaveTimeStamp.getTime() - cometime;
+        if (totalTime > 6 * 60 * 60 * 1000) {
+            signRecordsRepo.delete(id);
+            memberRepo.setIsEnd(name);
+            log.error(name + "签到超过6小时，签到无效");
+
+            return name + "签到超过6小时，签到无效";
+        } else {
+            String str_total = String.valueOf(DateUtil.formatdate(totalTime));
+            if (signRecordsRepo.setSendEnd(leaveTimeStamp, totalTime, str_total, id) == 1) {
+                memberRepo.setIsEnd(name);
+                return name + "签退成功";
+            } else {
+                log.error(name + "签退失败，请重试");
+                return name + "签退失败，请重试";
+            }
+        }
+
+    }
+
+}
