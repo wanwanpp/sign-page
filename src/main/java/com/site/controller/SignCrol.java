@@ -1,19 +1,25 @@
 package com.site.controller;
 
+import com.alibaba.fastjson.JSON;
 import com.site.model.sign.SignRecords;
 import com.site.repository.MemberRepo;
 import com.site.repository.SignRecordsRepo;
 import com.site.utils.DateUtil;
+import com.site.utils.RedisUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseBody;
+import redis.clients.jedis.Jedis;
 
 import javax.servlet.http.HttpServletRequest;
 import java.sql.Timestamp;
-import java.util.*;
+import java.util.HashMap;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
 
 @Controller
 @Slf4j
@@ -26,8 +32,9 @@ public class SignCrol {
     @Autowired
     private SignRecordsRepo signRecordsRepo;
 
-    public static List<Map<String, Object>> WARN_MAP = new LinkedList<>();
+//    public static List<Map<String, Object>> WARN_MAP = new LinkedList<>();
 
+    private Jedis jedis = RedisUtil.getJedis();
 
     @RequestMapping("/name")
     @ResponseBody
@@ -37,6 +44,7 @@ public class SignCrol {
         /**
          * 使用HQL进行某个表的多字段查询
          */
+
         List<Object[]> members = memberRepo.findNamesAndIsstart();
         List<Map<String, Object>> returnInfos = new LinkedList<>();
         for (Object[] member : members) {
@@ -65,7 +73,7 @@ public class SignCrol {
             memberRepo.setIsStart(name);
             return name + "签到成功";
         } else {
-            log.error(name+"签到失败");
+            log.error(name + "签到失败");
             return name + "签到失败，请重试";
         }
     }
@@ -74,10 +82,14 @@ public class SignCrol {
     @ResponseBody
     public Object getWarn() {
 
-//        List<Map<String, Object>> maps = new LinkedList<>();
+        List<Map<String, Object>> warnMap = new LinkedList<>();
+
         long now = System.currentTimeMillis();
         List<String> names = memberRepo.findNamesStart();
 
+        jedis.del("warnMap");
+
+        System.out.println(jedis.set("haha", "haha"));
         for (String name : names) {
             Timestamp cometime = signRecordsRepo.selectDescZCometime(name);
             if (cometime != null) {
@@ -87,12 +99,17 @@ public class SignCrol {
                     map.put("name", name);
                     map.put("time", DateUtil.formatdate(now - cometime.getTime()));
                     log.info("name" + name + "and : time " + DateUtil.formatdate(now - cometime.getTime()));
-                    WARN_MAP.add(map);
+                    warnMap.add(map);
                 }
             }
         }
-        if (WARN_MAP.size() > 0) {
-            return WARN_MAP;
+        if (warnMap.size() > 0) {
+
+            String jsonString = JSON.toJSONString(warnMap);
+            System.out.println(jsonString);
+            jedis.set("warnMap", jsonString);
+
+            return warnMap;
         } else {
             return "";
         }
@@ -103,10 +120,13 @@ public class SignCrol {
     public String onceEnd() {
 //        List<Map<String, Object>> infos = (List<Map<String, Object>>) getWarn();
 
+        String warnMap = jedis.get("warnMap");
+
+        List<HashMap> hashMaps = JSON.parseArray(warnMap, HashMap.class);
         //超过六小时被删除的
         StringBuffer deletedInfo = new StringBuffer("");
-        if (WARN_MAP.size() > 0) {
-            List<Map<String, Object>> outTimePerson = WARN_MAP;
+        if (hashMaps.size() > 0) {
+            List<HashMap> outTimePerson = hashMaps;
             try {
                 for (Map<String, Object> map : outTimePerson) {
                     String name = (String) map.get("name");
@@ -136,7 +156,7 @@ public class SignCrol {
                 log.error("一键重签失败,请重试");
                 return "一键重签失败,请重试";
             }
-            WARN_MAP.clear();
+            jedis.del("warnMap");
         }
         if (!deletedInfo.toString().equals("")) {
             String string = deletedInfo.deleteCharAt(deletedInfo.length() - 1).append("超过六小时，此次签到无效").toString();
@@ -145,6 +165,86 @@ public class SignCrol {
         }
         return "一键重签成功";
     }
+
+//    @RequestMapping("/getWarn")
+//    @ResponseBody
+//    public Object getWarn() {
+//
+////        List<Map<String, Object>> maps = new LinkedList<>();
+//        long now = System.currentTimeMillis();
+//        List<String> names = memberRepo.findNamesStart();
+//
+//
+//        if (WARN_MAP.size() > 0) {
+//            WARN_MAP.clear();
+//        }
+//        for (String name : names) {
+//            Timestamp cometime = signRecordsRepo.selectDescZCometime(name);
+//            if (cometime != null) {
+////            如果大于四小时进行提示
+//                if (now - cometime.getTime() > 14400000) {
+//                    Map<String, Object> map = new HashMap();
+//                    map.put("name", name);
+//                    map.put("time", DateUtil.formatdate(now - cometime.getTime()));
+//                    log.info("name" + name + "and : time " + DateUtil.formatdate(now - cometime.getTime()));
+//                    WARN_MAP.add(map);
+//                }
+//            }
+//        }
+//        if (WARN_MAP.size() > 0) {
+//            return WARN_MAP;
+//        } else {
+//            return "";
+//        }
+//    }
+//
+//    @RequestMapping(value = "/onceEnd", produces = "application/text")
+//    @ResponseBody
+//    public String onceEnd() {
+////        List<Map<String, Object>> infos = (List<Map<String, Object>>) getWarn();
+//
+//        //超过六小时被删除的
+//        StringBuffer deletedInfo = new StringBuffer("");
+//        if (WARN_MAP.size() > 0) {
+//            List<Map<String, Object>> outTimePerson = WARN_MAP;
+//            try {
+//                for (Map<String, Object> map : outTimePerson) {
+//                    String name = (String) map.get("name");
+////                    Long id = signRecordsRepo.selectDesc(name).get(0).getId();
+//                    Long id = signRecordsRepo.selectDescZId(name);
+//                    Long cometime = signRecordsRepo.selectComeTime(id).getTime();
+//                    Timestamp leaveTimeStamp = new Timestamp(System.currentTimeMillis());
+//                    Long totalTime = leaveTimeStamp.getTime() - cometime;
+//                    if (totalTime > 6 * 60 * 60 * 1000) {
+//                        signRecordsRepo.delete(id);
+//                        memberRepo.setIsEnd(name);
+//                        deletedInfo.append(name + ",");
+//                    } else {
+//                        String str_total = String.valueOf(DateUtil.formatdate(totalTime));
+//                        if (signRecordsRepo.setSendEnd(leaveTimeStamp, totalTime, str_total, id) == 1) {
+//                            memberRepo.setIsEnd(name);
+//                        }
+//                        SignRecords signRecords = new SignRecords(name);
+//                        if (signRecordsRepo.save(signRecords) != null) {
+//                            memberRepo.setIsStart(name);
+//                        } else {
+//                            throw new Exception("一键重签失败");
+//                        }
+//                    }
+//                }
+//            } catch (Exception e) {
+//                log.error("一键重签失败,请重试");
+//                return "一键重签失败,请重试";
+//            }
+//            WARN_MAP.clear();
+//        }
+//        if (!deletedInfo.toString().equals("")) {
+//            String string = deletedInfo.deleteCharAt(deletedInfo.length() - 1).append("超过六小时，此次签到无效").toString();
+//            log.error(string);
+//            return string;
+//        }
+//        return "一键重签成功";
+//    }
 
     @RequestMapping(value = "/end", produces = "application/text")
     @ResponseBody

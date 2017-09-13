@@ -9,9 +9,9 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  */
 @SpringBootApplication
 @EnableScheduling
-
 public class Springboot {
-    public static void main(String[] args)  {
+
+    public static void main(String[] args) {
         SpringApplication.run(Springboot.class, args);
     }
 }
