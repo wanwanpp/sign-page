@@ -40,44 +40,4 @@ public class Member { //1
     @LazyCollection(LazyCollectionOption.FALSE)
     @JsonIgnore
     private List<Roles> roles = new ArrayList<Roles>();
-
-
-//    @Override
-//    public Collection<? extends GrantedAuthority> getAuthorities() {
-//        List<SimpleGrantedAuthority> auths = new ArrayList<SimpleGrantedAuthority>();
-//        List<Roles> roles= this.getRoles();
-//        for(Roles role:roles){
-//            auths.add(new SimpleGrantedAuthority(role.getMark()));
-//        }
-//        return auths;
-//    }
-//
-//    @Override
-//    public String getPassword() {
-//        return pwd;
-//    }
-//
-//    @Override
-//    public String getUsername() {
-//        return name;
-//    }
-//
-//    @Override
-//    public boolean isAccountNonExpired() {
-//        return true;
-//    }
-//    @Override
-//    public boolean isAccountNonLocked() {
-//        return true;
-//    }
-//    @Override
-//    public boolean isCredentialsNonExpired() {
-//        return true;
-//    }
-//    @Override
-//    public boolean isEnabled() {
-//        return true;
-//    }
-
-
 }

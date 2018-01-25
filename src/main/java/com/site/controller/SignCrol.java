@@ -39,12 +39,7 @@ public class SignCrol {
     @RequestMapping("/name")
     @ResponseBody
     public List<Map<String, Object>> show() {
-
-//        List<Member> members = memberRepo.findAll();
-        /**
-         * 使用HQL进行某个表的多字段查询
-         */
-
+        //使用HQL进行某个表的多字段查询
         List<Object[]> members = memberRepo.findNamesAndIsstart();
         List<Map<String, Object>> returnInfos = new LinkedList<>();
         for (Object[] member : members) {
@@ -53,7 +48,6 @@ public class SignCrol {
             map.put("isstart", member[1]);
             returnInfos.add(map);
         }
-
         return returnInfos;
     }
 
@@ -273,7 +267,5 @@ public class SignCrol {
                 return name + "签退失败，请重试";
             }
         }
-
     }
-
 }
