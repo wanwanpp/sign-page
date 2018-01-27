@@ -21,12 +21,9 @@ import java.util.List;
 @Table(name = "roles")
 public class Roles{
 
-
     @Id
-    @GeneratedValue
+    @GeneratedValue(strategy = GenerationType.AUTO)
     private Long id;
-
-
     private String name;
     private String mark;
 

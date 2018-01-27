@@ -28,8 +28,8 @@ public class Member { //1
     private Integer grade;
     private String loginName;
     private String pwd;
-    @Column(name = "groups")
 
+    @Column(name = "groups")
     private Integer group;
     private Integer isleader;
     private Integer isstart;

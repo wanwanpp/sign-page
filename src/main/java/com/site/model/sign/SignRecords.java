@@ -32,10 +32,36 @@ public class SignRecords {
     @Column(name = "str_time")
     private String strTime;
 
+    public SignRecords(){}
+
     public SignRecords(String name) {
         this.name = name;
         this.comeTime = new Timestamp(System.currentTimeMillis());
     }
 
-    public SignRecords(){}
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+
+        SignRecords that = (SignRecords) o;
+
+        if (id != null ? !id.equals(that.id) : that.id != null) return false;
+        if (name != null ? !name.equals(that.name) : that.name != null) return false;
+        if (comeTime != null ? !comeTime.equals(that.comeTime) : that.comeTime != null) return false;
+        if (leaveTime != null ? !leaveTime.equals(that.leaveTime) : that.leaveTime != null) return false;
+        if (totalMill != null ? !totalMill.equals(that.totalMill) : that.totalMill != null) return false;
+        return strTime != null ? strTime.equals(that.strTime) : that.strTime == null;
+    }
+
+    @Override
+    public int hashCode() {
+        int result = id != null ? id.hashCode() : 0;
+        result = 31 * result + (name != null ? name.hashCode() : 0);
+        result = 31 * result + (comeTime != null ? comeTime.hashCode() : 0);
+        result = 31 * result + (leaveTime != null ? leaveTime.hashCode() : 0);
+        result = 31 * result + (totalMill != null ? totalMill.hashCode() : 0);
+        result = 31 * result + (strTime != null ? strTime.hashCode() : 0);
+        return result;
+    }
 }

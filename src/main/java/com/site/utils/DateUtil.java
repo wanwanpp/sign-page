@@ -57,8 +57,6 @@ public class DateUtil {
                     string.append(seconds).append("秒");
                 }
             }
-
-
         } else {
             long minutes = tominute(mill);
             if (minutes > 0) {
@@ -77,6 +75,4 @@ public class DateUtil {
         }
         return string;
     }
-
-
 }
