@@ -53,6 +53,9 @@ public class SignCrol {
 
     @RequestMapping("")
     public String showpage(HttpServletRequest request) {
+
+//        log.info("remote user is :"+request.getRemoteUser()+"\n remote addr is  "+request.getRemoteAddr()
+//                +"\n  remote host is "+request.getRemoteHost() +" \n remote port is "+request.getRemotePort());
         //设置会话超时时间为1天
         request.getSession().setMaxInactiveInterval(24 * 60 * 60);
         return "signWork";
