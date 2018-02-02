@@ -1,6 +1,7 @@
 package com.site.controller;
 
 import com.alibaba.fastjson.JSON;
+import com.site.model.sign.Response;
 import com.site.model.sign.SignRecords;
 import com.site.repository.MemberRepo;
 import com.site.repository.SignRecordsRepo;
@@ -32,81 +33,125 @@ public class SignCrol {
     @Autowired
     private SignRecordsRepo signRecordsRepo;
 
-//    public static List<Map<String, Object>> WARN_MAP = new LinkedList<>();
+    private final Jedis jedis = RedisUtil.getJedis();
+    /**
+     * 超时时间6个小时
+     */
+    private final static int TIMEOUT = 6 * 60 * 60 * 1000;
 
-    private Jedis jedis = RedisUtil.getJedis();
-
-    @RequestMapping("/name")
-    @ResponseBody
-    public List<Map<String, Object>> show() {
-        //使用HQL进行某个表的多字段查询
-        List<Object[]> members = memberRepo.findNamesAndIsstart();
-        List<Map<String, Object>> returnInfos = new LinkedList<>();
-        for (Object[] member : members) {
-            Map<String, Object> map = new HashMap<>();
-            map.put("name", member[0]);
-            map.put("isstart", member[1]);
-            returnInfos.add(map);
-        }
-        return returnInfos;
-    }
-
+    //    获取签到页面
     @RequestMapping("")
     public String showpage(HttpServletRequest request) {
-
-//        log.info("remote user is :"+request.getRemoteUser()+"\n remote addr is  "+request.getRemoteAddr()
-//                +"\n  remote host is "+request.getRemoteHost() +" \n remote port is "+request.getRemotePort());
         //设置会话超时时间为1天
         request.getSession().setMaxInactiveInterval(24 * 60 * 60);
         return "signWork";
     }
 
-    @RequestMapping(value = "/start", produces = "application/text")
+    //获取签到信息以填充签到页 （姓名和是否已签到）
+    @RequestMapping("/name")
     @ResponseBody
-    public String sendStart(@RequestBody String name) {
+    public List<Object[]> getNamesAndIfStart() {
+        //使用HQL进行某个表的多字段查询获取的格式为[[name,isstart],[name,isstart]]
+        List<Object[]> members = memberRepo.findNamesAndIsstart();
+        return members;
+    }
 
+    private final static String SIGN_SUCCESS = "签到成功";
+    private final static String SIGN_FAIL = "签到失败";
+
+    //签到动作
+    @RequestMapping(value = "/start")
+    @ResponseBody
+    public Response sendStart(@RequestBody String name) {
+        String msg;
+//        if (jedis.exists(name)) {
+//            msg = name + "已经签到";
+//            log.info(msg);
+//            return new Response(3, msg);
+//        }
         SignRecords signRecords = new SignRecords(name);
-        if (signRecordsRepo.save(signRecords) != null) {
+//        签到成功,redis  set成功就返回OK。
+        if ("OK".equals(saveToRedis(signRecords))) {
             memberRepo.setIsStart(name);
-            return name + "签到成功";
+            msg = name + SIGN_SUCCESS;
+            log.info(msg);
+            return new Response(1, msg);
+        }
+//        签到失败
+        else {
+            msg = name + SIGN_FAIL;
+            log.error(msg);
+            return new Response(0, msg);
+        }
+    }
+
+    private final static String SIGN_OUT_SUCCESS = "签退成功";
+    private final static String SIGN_OUT_FAIL = "签退失败";
+    private final static String SIGN_TIMEOUT = "签到超过6小时，签到无效";
+
+    //签退
+    @RequestMapping(value = "/end")
+    @ResponseBody
+    public Response sendend(@RequestBody String name) {
+
+        //根据名字找到对应的最后一条记录。
+        SignRecords signRecords = getFromRedis(name);
+        Timestamp leaveTimeStamp = new Timestamp(System.currentTimeMillis());
+        String msg;
+        Long totalTime = leaveTimeStamp.getTime() - signRecords.getComeTime().getTime();
+        //超过六个小时此签到记录就失效
+        if (totalTime > TIMEOUT) {
+            memberRepo.setIsEnd(name);
+            jedis.del(name);
+            msg = name + SIGN_TIMEOUT;
+            log.error(msg);
+            return new Response(2, msg);
         } else {
-            log.error(name + "签到失败");
-            return name + "签到失败，请重试";
+            String strTotal = String.valueOf(DateUtil.formatdate(totalTime));
+            signRecords.setLeaveTime(leaveTimeStamp);
+            signRecords.setStrTime(strTotal);
+            signRecords.setTotalMill(totalTime);
+            if (signRecordsRepo.save(signRecords) != null) {
+                memberRepo.setIsEnd(name);
+                jedis.del(name);
+                msg = name + SIGN_OUT_SUCCESS;
+                log.info(msg);
+                return new Response(1, msg);
+            } else {
+                msg = name + SIGN_OUT_FAIL;
+                log.error(msg);
+                return new Response(0, msg);
+            }
         }
     }
 
     @RequestMapping("/getWarn")
     @ResponseBody
     public Object getWarn() {
-
-        List<Map<String, Object>> warnMap = new LinkedList<>();
-
+        List<Map<String, Object>> warnRecords = new LinkedList<>();
         long now = System.currentTimeMillis();
         List<String> names = memberRepo.findNamesStart();
-
-        jedis.del("warnMap");
-
-        System.out.println(jedis.set("haha", "haha"));
+        //每次查看是否有超时记录时，先删除旧数据。
+        jedis.del("warnRecords");
         for (String name : names) {
-            Timestamp cometime = signRecordsRepo.selectDescZCometime(name);
+            Timestamp cometime = getFromRedis(name).getComeTime();
             if (cometime != null) {
-//            如果大于四小时进行提示
-                if (now - cometime.getTime() > 14400000) {
+//            如果大于四小时就放入warnMap中进行提示
+                if (now - cometime.getTime() > 4 * 60 * 60 * 1000) {
                     Map<String, Object> map = new HashMap();
                     map.put("name", name);
                     map.put("time", DateUtil.formatdate(now - cometime.getTime()));
-                    log.info("name" + name + "and : time " + DateUtil.formatdate(now - cometime.getTime()));
-                    warnMap.add(map);
+                    log.info("超过四小时的记录: " + name + " : " + DateUtil.formatdate(now - cometime.getTime()));
+                    warnRecords.add(map);
                 }
             }
         }
-        if (warnMap.size() > 0) {
-
-            String jsonString = JSON.toJSONString(warnMap);
+        //有超时记录，就缓存到redis。
+        if (warnRecords.size() > 0) {
+            String jsonString = JSON.toJSONString(warnRecords);
             System.out.println(jsonString);
-            jedis.set("warnMap", jsonString);
-
-            return warnMap;
+            jedis.set("warnRecords", jsonString);
+            return warnRecords;
         } else {
             return "";
         }
@@ -115,47 +160,41 @@ public class SignCrol {
     @RequestMapping(value = "/onceEnd", produces = "application/text")
     @ResponseBody
     public String onceEnd() {
-//        List<Map<String, Object>> infos = (List<Map<String, Object>>) getWarn();
-
-        String warnMap = jedis.get("warnMap");
-
-        List<HashMap> hashMaps = JSON.parseArray(warnMap, HashMap.class);
+        String warnRecords = jedis.get("warnRecords");
+        List<HashMap> hashMaps = JSON.parseArray(warnRecords, HashMap.class);
         //超过六小时被删除的
         StringBuffer deletedInfo = new StringBuffer("");
+
         if (hashMaps.size() > 0) {
-            List<HashMap> outTimePerson = hashMaps;
-            try {
-                for (Map<String, Object> map : outTimePerson) {
-                    String name = (String) map.get("name");
-//                    Long id = signRecordsRepo.selectDesc(name).get(0).getId();
-                    Long id = signRecordsRepo.selectDescZId(name);
-                    Long cometime = signRecordsRepo.selectComeTime(id).getTime();
-                    Timestamp leaveTimeStamp = new Timestamp(System.currentTimeMillis());
-                    Long totalTime = leaveTimeStamp.getTime() - cometime;
-                    if (totalTime > 6 * 60 * 60 * 1000) {
-                        signRecordsRepo.delete(id);
+            //遍历警告列表，超过六个小时的就删除，没有的就签退后重新签到。
+            for (Map<String, Object> map : hashMaps) {
+                String name = (String) map.get("name");
+                SignRecords signRecords = getFromRedis(name);
+                Timestamp leaveTimeStamp = new Timestamp(System.currentTimeMillis());
+                Long totalTime = leaveTimeStamp.getTime() - signRecords.getComeTime().getTime();
+                //超时的就删除
+                if (totalTime > TIMEOUT) {
+                    memberRepo.setIsEnd(name);
+                    deletedInfo.append(name + ",");
+                }
+                //没超时的，就签退后重新签到。
+                else {
+                    String str_total = String.valueOf(DateUtil.formatdate(totalTime));
+                    signRecords.setLeaveTime(leaveTimeStamp);
+                    signRecords.setTotalMill(totalTime);
+                    signRecords.setStrTime(str_total);
+                    if (signRecordsRepo.save(signRecords) != null) {
                         memberRepo.setIsEnd(name);
-                        deletedInfo.append(name + ",");
-                    } else {
-                        String str_total = String.valueOf(DateUtil.formatdate(totalTime));
-                        if (signRecordsRepo.setSendEnd(leaveTimeStamp, totalTime, str_total, id) == 1) {
-                            memberRepo.setIsEnd(name);
-                        }
-                        SignRecords signRecords = new SignRecords(name);
-                        if (signRecordsRepo.save(signRecords) != null) {
-                            memberRepo.setIsStart(name);
-                        } else {
-                            throw new Exception("一键重签失败");
-                        }
+                    }
+                    SignRecords newSignRecord = new SignRecords(name);
+                    if ("OK".equals(saveToRedis(newSignRecord))) {
+                        memberRepo.setIsStart(name);
                     }
                 }
-            } catch (Exception e) {
-                log.error("一键重签失败,请重试");
-                return "一键重签失败,请重试";
             }
-            jedis.del("warnMap");
         }
-        if (!deletedInfo.toString().equals("")) {
+        jedis.del("warnRecords");
+        if (!"".equals(deletedInfo.toString())) {
             String string = deletedInfo.deleteCharAt(deletedInfo.length() - 1).append("超过六小时，此次签到无效").toString();
             log.error(string);
             return string;
@@ -163,112 +202,12 @@ public class SignCrol {
         return "一键重签成功";
     }
 
-//    @RequestMapping("/getWarn")
-//    @ResponseBody
-//    public Object getWarn() {
-//
-////        List<Map<String, Object>> maps = new LinkedList<>();
-//        long now = System.currentTimeMillis();
-//        List<String> names = memberRepo.findNamesStart();
-//
-//
-//        if (WARN_MAP.size() > 0) {
-//            WARN_MAP.clear();
-//        }
-//        for (String name : names) {
-//            Timestamp cometime = signRecordsRepo.selectDescZCometime(name);
-//            if (cometime != null) {
-////            如果大于四小时进行提示
-//                if (now - cometime.getTime() > 14400000) {
-//                    Map<String, Object> map = new HashMap();
-//                    map.put("name", name);
-//                    map.put("time", DateUtil.formatdate(now - cometime.getTime()));
-//                    log.info("name" + name + "and : time " + DateUtil.formatdate(now - cometime.getTime()));
-//                    WARN_MAP.add(map);
-//                }
-//            }
-//        }
-//        if (WARN_MAP.size() > 0) {
-//            return WARN_MAP;
-//        } else {
-//            return "";
-//        }
-//    }
-//
-//    @RequestMapping(value = "/onceEnd", produces = "application/text")
-//    @ResponseBody
-//    public String onceEnd() {
-////        List<Map<String, Object>> infos = (List<Map<String, Object>>) getWarn();
-//
-//        //超过六小时被删除的
-//        StringBuffer deletedInfo = new StringBuffer("");
-//        if (WARN_MAP.size() > 0) {
-//            List<Map<String, Object>> outTimePerson = WARN_MAP;
-//            try {
-//                for (Map<String, Object> map : outTimePerson) {
-//                    String name = (String) map.get("name");
-////                    Long id = signRecordsRepo.selectDesc(name).get(0).getId();
-//                    Long id = signRecordsRepo.selectDescZId(name);
-//                    Long cometime = signRecordsRepo.selectComeTime(id).getTime();
-//                    Timestamp leaveTimeStamp = new Timestamp(System.currentTimeMillis());
-//                    Long totalTime = leaveTimeStamp.getTime() - cometime;
-//                    if (totalTime > 6 * 60 * 60 * 1000) {
-//                        signRecordsRepo.delete(id);
-//                        memberRepo.setIsEnd(name);
-//                        deletedInfo.append(name + ",");
-//                    } else {
-//                        String str_total = String.valueOf(DateUtil.formatdate(totalTime));
-//                        if (signRecordsRepo.setSendEnd(leaveTimeStamp, totalTime, str_total, id) == 1) {
-//                            memberRepo.setIsEnd(name);
-//                        }
-//                        SignRecords signRecords = new SignRecords(name);
-//                        if (signRecordsRepo.save(signRecords) != null) {
-//                            memberRepo.setIsStart(name);
-//                        } else {
-//                            throw new Exception("一键重签失败");
-//                        }
-//                    }
-//                }
-//            } catch (Exception e) {
-//                log.error("一键重签失败,请重试");
-//                return "一键重签失败,请重试";
-//            }
-//            WARN_MAP.clear();
-//        }
-//        if (!deletedInfo.toString().equals("")) {
-//            String string = deletedInfo.deleteCharAt(deletedInfo.length() - 1).append("超过六小时，此次签到无效").toString();
-//            log.error(string);
-//            return string;
-//        }
-//        return "一键重签成功";
-//    }
+    private String saveToRedis(SignRecords records) {
+//        return jedis.set(records.getName(), JSON.toJSONString(records));
+        return RedisUtil.setcache(records.getName(), JSON.toJSONString(records));
+    }
 
-    @RequestMapping(value = "/end", produces = "application/text")
-    @ResponseBody
-    public String sendend(@RequestBody String name) {
-
-//        Long id = signRecordsRepo.selectDesc(name).get(0).getId();
-        Long id = signRecordsRepo.selectDescZId(name);
-
-        Long cometime = signRecordsRepo.selectComeTime(id).getTime();
-        Timestamp leaveTimeStamp = new Timestamp(System.currentTimeMillis());
-
-        Long totalTime = leaveTimeStamp.getTime() - cometime;
-        if (totalTime > 6 * 60 * 60 * 1000) {
-            signRecordsRepo.delete(id);
-            memberRepo.setIsEnd(name);
-            log.error(name + "签到超过6小时，签到无效");
-
-            return name + "签到超过6小时，签到无效";
-        } else {
-            String str_total = String.valueOf(DateUtil.formatdate(totalTime));
-            if (signRecordsRepo.setSendEnd(leaveTimeStamp, totalTime, str_total, id) == 1) {
-                memberRepo.setIsEnd(name);
-                return name + "签退成功";
-            } else {
-                log.error(name + "签退失败，请重试");
-                return name + "签退失败，请重试";
-            }
-        }
+    private SignRecords getFromRedis(String name) {
+        return JSON.parseObject(jedis.get(name), SignRecords.class);
     }
 }

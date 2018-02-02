@@ -31,13 +31,13 @@
     <tbody>
     <tr ng-repeat="member in members">
         <td>{{$index+1}}</td>
-        <td>{{member.name}}</td>
+        <td>{{member[0]}}</td>
         <td>
-            <button class="btn btn-info col-lg-offset-2" ng-show="member.isstart==0" ng-click="start(member)">签到
+            <button class="btn btn-info col-lg-offset-2" ng-show="member[1]==0" ng-click="start(member)">签到
             </button>
         </td>
         <td>
-            <button class="btn btn-danger col-lg-offset-2" ng-show="member.isstart==1" ng-click="end(member)">签退
+            <button class="btn btn-danger col-lg-offset-2" ng-show="member[1]==1" ng-click="end(member)">签退
             </button>
         </td>
     </tr>
@@ -95,81 +95,102 @@
 <script type="application/javascript">
     var app = angular.module('myApp', []);
     app.controller('signCtrl', function ($scope, $http, $interval) {
+        //获取签到页填充信息
         $scope.fetchUsersList = function () {
             $http.get("/sign/name")
-                    .success(function (members) {
-                        $scope.members = members;
-                    });
+                .success(function (members) {
+                    $scope.members = members;
+                });
             $scope.message = "请按时签到签退";
         };
         $scope.fetchUsersList();
 
+        $scope.infos = "";
+
+        //查看是否有人超过四个小时。
         var callAtTimeout = function () {
             $http.get("/sign/getWarn")
-                    .success(function (infos) {
-                        $scope.infos = infos;
-                        if ($scope.infos.length > 0) {
-                            $('#myModal').modal('show');
-                        } else {
-                            alert("没有人超过四小时");
-                        }
-                    });
+                .success(function (infos) {
+                    $scope.infos = infos;
+                    if ($scope.infos.length > 0) {
+                        $('#myModal').modal('show');
+                    } else {
+                        alert("没有人超过四小时");
+                    }
+                });
         };
-
-        $scope.infos = "";
+        //查看是否有人超过四个小时。
         $scope.getWarn = function () {
             $http.get("/sign/getWarn")
-                    .success(function (infos) {
-                        $scope.infos = infos;
-                        if ($scope.infos.length > 0) {
-                            $('#myModal').modal('show');
-                        } else {
-                            alert("没有人超过四小时");
-                        }
-                    });
+                .success(function (infos) {
+                    $scope.infos = infos;
+                    if ($scope.infos.length > 0) {
+                        $('#myModal').modal('show');
+                    } else {
+                        alert("没有人超过四小时");
+                    }
+                });
         };
 
-        $interval(callAtTimeout, 60 * 60 * 1000);
+//        20分钟执行一次callAtTimeout，查看是否有记录超过四个小时
+        $interval(callAtTimeout, 20 * 60 * 1000);
 
-
+        //一键签退
         $scope.onceEnd = function () {
             $http.get("/sign/onceEnd")
-                    .success(function (message) {
-                        alert(message);
-                        window.location.reload();
-                    });
+                .success(function (message) {
+                    alert(message);
+                    window.location.reload();
+                });
         };
 
-
+        //签到动作
         $scope.start = function (member) {
-            $http.post("/sign/start", member.name)
-                    .success(function (message) {
-//                        $scope.fetchUsersList();
-                        //这样就不用签到或者签退后再刷新一次。
-                        member.isstart = 1;
-                        $scope.message = message;
-                        alert(message);
-                    });
+            $http.post("/sign/start", member[0])
+                .success(function (response) {
+                    //这样就不用签到或者签退后再刷新一次。
+                    if (response.status == 1 || response.status == 3) {
+                        member[1] = 1;
+                        $scope.message = response.msg;
+                        alert(response.msg);
+                    }
+                    if (response.status == 0) {
+                        $scope.message = response.msg;
+                        alert(response.msg);
+                    }
+                });
         };
 
+        //签退动作
         $scope.end = function (member) {
-            $http.post("/sign/end", member.name)
-                    .success(function (message) {
-//                        $scope.fetchUsersList();
-                        //这样就不用签到或者签退后再刷新一次。
-                        member.isstart = 0;
-                        $scope.message = message;
-                        alert(message);
-                    });
+            $http.post("/sign/end", member[0])
+                .success(function (response) {
+                    if (response.status == 1 || response.status == 2) {
+                        member[1] = 0;
+                        $scope.message = response.msg;
+                        alert(response.msg);
+                    }
+                    if (response.status == 0) {
+                        $scope.message = response.msg;
+                        alert(response.msg);
+                    }
+                });
         };
 
+        //在提醒列表中签退
         $scope.endForWarn = function (name) {
             $http.post("/sign/end", name)
-                    .success(function (message) {
-                        $scope.message = message;
-                        alert(message);
-                        window.location.reload();
-                    });
+                .success(function (response) {
+                    if (response.status == 1 || response.status == 2) {
+                        member[1] = 0;
+                        $scope.message = response.msg;
+                        alert(response.msg);
+                    }
+                    if (response.status == 0) {
+                        $scope.message = response.msg;
+                        alert(response.msg);
+                    }
+                });
         };
     });
 </script>

@@ -73,9 +73,9 @@
 
         <!--redis pool需要-->
         <!--<dependency>-->
-        <!--<groupId>commons-pool</groupId>-->
-        <!--<artifactId>commons-pool</artifactId>-->
-        <!--<version>1.5.4</version>-->
+            <!--<groupId>commons-pool</groupId>-->
+            <!--<artifactId>commons-pool</artifactId>-->
+            <!--<version>1.5.4</version>-->
         <!--</dependency>-->
 
         <dependency>
